@@ -1,0 +1,12 @@
+import "../src/crypto.noqeri"
+
+function require(ok: bool): void {
+    if !ok { let invalid: *u8 = 0 as *u8 print(invalid[0]) }
+}
+
+let left = [1 as u8, 2 as u8, 3 as u8]
+let right = [1 as u8, 2 as u8, 3 as u8]
+require(cryptoDigestEqual(left, right))
+require(!cryptoDigestEqual(left, [1 as u8]))
+print("noqeri-crypto package tests: OK")
+
