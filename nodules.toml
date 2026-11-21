@@ -1,0 +1,9 @@
+[nodule]
+format = "ndl-1"
+name = "noqeri/crypto"
+version = "1.0.0"
+entry = "src/crypto.noqeri"
+kind = "library"
+target = "portable"
+license = "Apache-2.0"
+description = "Official noqeri-crypto package for the Noqeri ecosystem"
