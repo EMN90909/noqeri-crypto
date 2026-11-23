@@ -1,26 +1,389 @@
 // SPDX-License-Identifier: Apache-2.0
 module noqeri.crypto
 
-extern function cryptoRandomFill(output: []u8): bool
-extern function cryptoSha256(input: []u8, output: []u8): bool
-extern function cryptoBlake3(input: []u8, output: []u8): bool
-extern function cryptoHmacSha256(key: []u8, input: []u8, output: []u8): bool
-extern function cryptoAesGcm(key: []u8, nonce: []u8, input: []u8, output: []u8): bool
+record CryptoPrng {
+    state0: u64
+    state1: u64
+}
+
+function cryptoU32Mask(): u64 { return 4294967296 as u64 }
+
+function cryptoXor64(a: u64, b: u64): u64 {
+    let out: u64 = 0 as u64
+    let bit: u64 = 1 as u64
+    let x: u64 = a
+    let y: u64 = b
+    let i: int = 0
+    while i < 64 {
+        if (x % 2 as u64) != (y % 2 as u64) { out = out + bit }
+        x = x / 2 as u64
+        y = y / 2 as u64
+        if i < 63 { bit = bit * 2 as u64 }
+        i = i + 1
+    }
+    return out
+}
+
+function cryptoXor32(a: u64, b: u64): u64 {
+    let out: u64 = 0 as u64
+    let bit: u64 = 1 as u64
+    let x: u64 = a % cryptoU32Mask()
+    let y: u64 = b % cryptoU32Mask()
+    let i: int = 0
+    while i < 32 {
+        if (x % 2 as u64) != (y % 2 as u64) { out = out + bit }
+        x = x / 2 as u64
+        y = y / 2 as u64
+        bit = bit * 2 as u64
+        i = i + 1
+    }
+    return out
+}
+
+function cryptoAnd32(a: u64, b: u64): u64 {
+    let out: u64 = 0 as u64
+    let bit: u64 = 1 as u64
+    let x: u64 = a % cryptoU32Mask()
+    let y: u64 = b % cryptoU32Mask()
+    let i: int = 0
+    while i < 32 {
+        if (x % 2 as u64) == 1 as u64 && (y % 2 as u64) == 1 as u64 { out = out + bit }
+        x = x / 2 as u64
+        y = y / 2 as u64
+        bit = bit * 2 as u64
+        i = i + 1
+    }
+    return out
+}
+
+function cryptoXor8(a: u8, b: u8): u8 {
+    let out: u64 = 0 as u64
+    let bit: u64 = 1 as u64
+    let x: u64 = a as u64
+    let y: u64 = b as u64
+    let i: int = 0
+    while i < 8 {
+        if (x % 2 as u64) != (y % 2 as u64) { out = out + bit }
+        x = x / 2 as u64
+        y = y / 2 as u64
+        bit = bit * 2 as u64
+        i = i + 1
+    }
+    return out as u8
+}
+
+function cryptoOr8(a: u8, b: u8): u8 {
+    let out: u64 = 0 as u64
+    let bit: u64 = 1 as u64
+    let x: u64 = a as u64
+    let y: u64 = b as u64
+    let i: int = 0
+    while i < 8 {
+        if (x % 2 as u64) == 1 as u64 || (y % 2 as u64) == 1 as u64 { out = out + bit }
+        x = x / 2 as u64
+        y = y / 2 as u64
+        bit = bit * 2 as u64
+        i = i + 1
+    }
+    return out as u8
+}
+
+function cryptoRotr32(x: u64, bits: u64): u64 {
+    let v: u64 = x % cryptoU32Mask()
+    if bits == 0 as u64 { return v }
+    let p: u64 = 1 as u64
+    let i: u64 = 0 as u64
+    while i < bits {
+        p = p * 2 as u64
+        i = i + 1 as u64
+    }
+    let lo: u64 = v / p
+    let hi: u64 = (v % p) * (cryptoU32Mask() / p)
+    return (lo + hi) % cryptoU32Mask()
+}
+
+function cryptoShr32(x: u64, bits: u64): u64 {
+    let v: u64 = x % cryptoU32Mask()
+    let p: u64 = 1 as u64
+    let i: u64 = 0 as u64
+    while i < bits {
+        p = p * 2 as u64
+        i = i + 1 as u64
+    }
+    return v / p
+}
+
+function cryptoNot32(x: u64): u64 {
+    return 4294967295 as u64 - (x % cryptoU32Mask())
+}
+
+function cryptoSha256K(idx: usize): u64 {
+    if idx == 0 as usize { return 0x428a2f98 as u64 }
+    if idx == 1 as usize { return 0x71374491 as u64 }
+    if idx == 2 as usize { return 0xb5c0fbcf as u64 }
+    if idx == 3 as usize { return 0xe9b5dba5 as u64 }
+    if idx == 4 as usize { return 0x3956c25b as u64 }
+    if idx == 5 as usize { return 0x59f111f1 as u64 }
+    if idx == 6 as usize { return 0x923f82a4 as u64 }
+    if idx == 7 as usize { return 0xab1c5ed5 as u64 }
+    if idx == 8 as usize { return 0xd807aa98 as u64 }
+    if idx == 9 as usize { return 0x12835b01 as u64 }
+    if idx == 10 as usize { return 0x243185be as u64 }
+    if idx == 11 as usize { return 0x550c7dc3 as u64 }
+    if idx == 12 as usize { return 0x72be5d74 as u64 }
+    if idx == 13 as usize { return 0x80deb1fe as u64 }
+    if idx == 14 as usize { return 0x9bdc06a7 as u64 }
+    if idx == 15 as usize { return 0xc19bf174 as u64 }
+    if idx == 16 as usize { return 0xe49b69c1 as u64 }
+    if idx == 17 as usize { return 0xefbe4786 as u64 }
+    if idx == 18 as usize { return 0x0fc19dc6 as u64 }
+    if idx == 19 as usize { return 0x240ca1cc as u64 }
+    if idx == 20 as usize { return 0x2de92c6f as u64 }
+    if idx == 21 as usize { return 0x4a7484aa as u64 }
+    if idx == 22 as usize { return 0x5cb0a9dc as u64 }
+    if idx == 23 as usize { return 0x76f988da as u64 }
+    if idx == 24 as usize { return 0x983e5152 as u64 }
+    if idx == 25 as usize { return 0xa831c66d as u64 }
+    if idx == 26 as usize { return 0xb00327c8 as u64 }
+    if idx == 27 as usize { return 0xbf597fc7 as u64 }
+    if idx == 28 as usize { return 0xc6e00bf3 as u64 }
+    if idx == 29 as usize { return 0xd5a79147 as u64 }
+    if idx == 30 as usize { return 0x06ca6351 as u64 }
+    if idx == 31 as usize { return 0x14292967 as u64 }
+    if idx == 32 as usize { return 0x27b70a85 as u64 }
+    if idx == 33 as usize { return 0x2e1b2138 as u64 }
+    if idx == 34 as usize { return 0x4d2c6dfc as u64 }
+    if idx == 35 as usize { return 0x53380d13 as u64 }
+    if idx == 36 as usize { return 0x650a7354 as u64 }
+    if idx == 37 as usize { return 0x766a0abb as u64 }
+    if idx == 38 as usize { return 0x81c2c92e as u64 }
+    if idx == 39 as usize { return 0x92722c85 as u64 }
+    if idx == 40 as usize { return 0xa2bfe8a1 as u64 }
+    if idx == 41 as usize { return 0xa81a664b as u64 }
+    if idx == 42 as usize { return 0xc24b8b70 as u64 }
+    if idx == 43 as usize { return 0xc76c51a3 as u64 }
+    if idx == 44 as usize { return 0xd192e819 as u64 }
+    if idx == 45 as usize { return 0xd6990624 as u64 }
+    if idx == 46 as usize { return 0xf40e3585 as u64 }
+    if idx == 47 as usize { return 0x106aa070 as u64 }
+    if idx == 48 as usize { return 0x19a4c116 as u64 }
+    if idx == 49 as usize { return 0x1e376c08 as u64 }
+    if idx == 50 as usize { return 0x2748774c as u64 }
+    if idx == 51 as usize { return 0x34b0bcb5 as u64 }
+    if idx == 52 as usize { return 0x391c0cb3 as u64 }
+    if idx == 53 as usize { return 0x4ed8aa4a as u64 }
+    if idx == 54 as usize { return 0x5b9cca4f as u64 }
+    if idx == 55 as usize { return 0x682e6ff3 as u64 }
+    if idx == 56 as usize { return 0x748f82ee as u64 }
+    if idx == 57 as usize { return 0x78a5636f as u64 }
+    if idx == 58 as usize { return 0x84c87814 as u64 }
+    if idx == 59 as usize { return 0x8cc70208 as u64 }
+    if idx == 60 as usize { return 0x90befffa as u64 }
+    if idx == 61 as usize { return 0xa4506ceb as u64 }
+    if idx == 62 as usize { return 0xbef9a3f7 as u64 }
+    return 0xc67178f2 as u64
+}
+
+function cryptoSha256Compress(state: []u64, block: []u8): void {
+    let w: [u64; 64]
+    let i: usize = 0 as usize
+    while i < 16 as usize {
+        let j: usize = i * 4 as usize
+        let b0: u64 = block[j] as u64
+        let b1: u64 = block[j + 1 as usize] as u64
+        let b2: u64 = block[j + 2 as usize] as u64
+        let b3: u64 = block[j + 3 as usize] as u64
+        w[i] = b0 * 16777216 as u64 + b1 * 65536 as u64 + b2 * 256 as u64 + b3
+        i = i + 1 as usize
+    }
+    while i < 64 as usize {
+        let x15: u64 = w[i - 15 as usize]
+        let x2: u64 = w[i - 2 as usize]
+        let s0: u64 = cryptoXor64(cryptoXor64(cryptoRotr32(x15, 7 as u64), cryptoRotr32(x15, 18 as u64)), cryptoShr32(x15, 3 as u64))
+        let s1: u64 = cryptoXor64(cryptoXor64(cryptoRotr32(x2, 17 as u64), cryptoRotr32(x2, 19 as u64)), cryptoShr32(x2, 10 as u64))
+        w[i] = (w[i - 16 as usize] + s0 + w[i - 7 as usize] + s1) % cryptoU32Mask()
+        i = i + 1 as usize
+    }
+    let a: u64 = state[0 as usize]
+    let b: u64 = state[1 as usize]
+    let c: u64 = state[2 as usize]
+    let d: u64 = state[3 as usize]
+    let e: u64 = state[4 as usize]
+    let f: u64 = state[5 as usize]
+    let g: u64 = state[6 as usize]
+    let h: u64 = state[7 as usize]
+    i = 0 as usize
+    while i < 64 as usize {
+        let S1: u64 = cryptoXor32(cryptoXor32(cryptoRotr32(e, 6 as u64), cryptoRotr32(e, 11 as u64)), cryptoRotr32(e, 25 as u64))
+        let ch: u64 = cryptoXor32(cryptoAnd32(e, f), cryptoAnd32(cryptoNot32(e), g))
+        let temp1: u64 = (h + S1 + ch + cryptoSha256K(i) + w[i]) % cryptoU32Mask()
+        let S0: u64 = cryptoXor32(cryptoXor32(cryptoRotr32(a, 2 as u64), cryptoRotr32(a, 13 as u64)), cryptoRotr32(a, 22 as u64))
+        let maj: u64 = cryptoXor32(cryptoXor32(cryptoAnd32(a, b), cryptoAnd32(a, c)), cryptoAnd32(b, c))
+        let temp2: u64 = (S0 + maj) % cryptoU32Mask()
+        h = g
+        g = f
+        f = e
+        e = (d + temp1) % cryptoU32Mask()
+        d = c
+        c = b
+        b = a
+        a = (temp1 + temp2) % cryptoU32Mask()
+        i = i + 1 as usize
+    }
+    state[0 as usize] = (state[0 as usize] + a) % cryptoU32Mask()
+    state[1 as usize] = (state[1 as usize] + b) % cryptoU32Mask()
+    state[2 as usize] = (state[2 as usize] + c) % cryptoU32Mask()
+    state[3 as usize] = (state[3 as usize] + d) % cryptoU32Mask()
+    state[4 as usize] = (state[4 as usize] + e) % cryptoU32Mask()
+    state[5 as usize] = (state[5 as usize] + f) % cryptoU32Mask()
+    state[6 as usize] = (state[6 as usize] + g) % cryptoU32Mask()
+    state[7 as usize] = (state[7 as usize] + h) % cryptoU32Mask()
+}
 
 export function cryptoSha256OutputSize(): usize { return 32 as usize }
 export function cryptoCanDigest(output: []u8): bool { return len(output) >= 32 as usize }
-export function cryptoDigest(input: []u8, output: []u8): bool { if !cryptoCanDigest(output) { return false } return cryptoSha256(input, output) }
-export function cryptoBlake3Digest(input: []u8, output: []u8): bool { if !cryptoCanDigest(output) { return false } return cryptoBlake3(input, output) }
-export function cryptoHmac(key: []u8, input: []u8, output: []u8): bool { if len(key) == 0 as usize || !cryptoCanDigest(output) { return false } return cryptoHmacSha256(key, input, output) }
-export function cryptoEncrypt(key: []u8, nonce: []u8, input: []u8, output: []u8): bool { if len(key) != 16 as usize && len(key) != 24 as usize && len(key) != 32 as usize { return false } if len(nonce) != 12 as usize { return false } return cryptoAesGcm(key, nonce, input, output) }
-export function cryptoDigestEqual(left: []u8, right: []u8): bool {
-    if len(left) != len(right) { return false }
-    let mismatch: int = 0
-    let i: usize = 0 as usize
-    while i < len(left) {
-        if left[i] != right[i] { mismatch = mismatch + 1 }
-        i = i + 1 as usize
+
+export function cryptoDigest(input: []u8, output: []u8): bool {
+    if !cryptoCanDigest(output) { return false }
+    let st: [u64; 8]
+    st[0] = 0x6a09e667 as u64
+    st[1] = 0xbb67ae85 as u64
+    st[2] = 0x3c6ef372 as u64
+    st[3] = 0xa54ff53a as u64
+    st[4] = 0x510e527f as u64
+    st[5] = 0x9b05688c as u64
+    st[6] = 0x1f83d9ab as u64
+    st[7] = 0x5be0cd19 as u64
+    let stSlice: []u64 = slice(&st[0 as usize], 8 as usize)
+
+    let blk: [u8; 64]
+    let blkSlice: []u8 = slice(&blk[0 as usize], 64 as usize)
+    let pos: usize = 0 as usize
+    let totalLen: usize = len(input)
+    while pos + 64 as usize <= totalLen {
+        let k: usize = 0 as usize
+        while k < 64 as usize {
+            blk[k] = input[pos + k]
+            k = k + 1 as usize
+        }
+        cryptoSha256Compress(stSlice, blkSlice)
+        pos = pos + 64 as usize
     }
-    return mismatch == 0
+
+    let k: usize = 0 as usize
+    while k < 64 as usize { blk[k] = 0 as u8 k = k + 1 as usize }
+    let rem: usize = totalLen - pos
+    k = 0 as usize
+    while k < rem {
+        blk[k] = input[pos + k]
+        k = k + 1 as usize
+    }
+    blk[rem] = 128 as u8
+    if rem >= 56 as usize {
+        cryptoSha256Compress(stSlice, blkSlice)
+        k = 0 as usize
+        while k < 64 as usize { blk[k] = 0 as u8 k = k + 1 as usize }
+    }
+    let bitLen: u64 = (totalLen as u64) * 8 as u64
+    blk[56] = ((bitLen / 72057594037927936 as u64) % 256 as u64) as u8
+    blk[57] = ((bitLen / 281474976710656 as u64) % 256 as u64) as u8
+    blk[58] = ((bitLen / 1099511627776 as u64) % 256 as u64) as u8
+    blk[59] = ((bitLen / 4294967296 as u64) % 256 as u64) as u8
+    blk[60] = ((bitLen / 16777216 as u64) % 256 as u64) as u8
+    blk[61] = ((bitLen / 65536 as u64) % 256 as u64) as u8
+    blk[62] = ((bitLen / 256 as u64) % 256 as u64) as u8
+    blk[63] = (bitLen % 256 as u64) as u8
+    cryptoSha256Compress(stSlice, blkSlice)
+
+    let wIdx: usize = 0 as usize
+    while wIdx < 8 as usize {
+        let wVal: u64 = st[wIdx]
+        output[wIdx * 4 as usize] = ((wVal / 16777216 as u64) % 256 as u64) as u8
+        output[wIdx * 4 as usize + 1 as usize] = ((wVal / 65536 as u64) % 256 as u64) as u8
+        output[wIdx * 4 as usize + 2 as usize] = ((wVal / 256 as u64) % 256 as u64) as u8
+        output[wIdx * 4 as usize + 3 as usize] = (wVal % 256 as u64) as u8
+        wIdx = wIdx + 1 as usize
+    }
+    return true
 }
 
+export function cryptoHmac(key: []u8, input: []u8, output: []u8): bool {
+    if len(key) == 0 as usize || !cryptoCanDigest(output) { return false }
+    let keyBlock: [u8; 64]
+    let i: usize = 0 as usize
+    while i < 64 as usize { keyBlock[i] = 0 as u8 i = i + 1 as usize }
+    if len(key) > 64 as usize {
+        let keyHash: [u8; 32]
+        if !cryptoDigest(key, slice(&keyHash[0 as usize], 32 as usize)) { return false }
+        i = 0 as usize
+        while i < 32 as usize { keyBlock[i] = keyHash[i] i = i + 1 as usize }
+    } else {
+        i = 0 as usize
+        while i < len(key) { keyBlock[i] = key[i] i = i + 1 as usize }
+    }
+
+    if len(input) > 192 as usize { return false }
+    let innerMsg: [u8; 256]
+    i = 0 as usize
+    while i < 64 as usize { innerMsg[i] = cryptoXor8(keyBlock[i], 54 as u8) i = i + 1 as usize }
+    i = 0 as usize
+    while i < len(input) { innerMsg[64 as usize + i] = input[i] i = i + 1 as usize }
+    let innerDigest: [u8; 32]
+    if !cryptoDigest(slice(&innerMsg[0 as usize], 64 as usize + len(input)), slice(&innerDigest[0 as usize], 32 as usize)) {
+        return false
+    }
+
+    let outerMsg: [u8; 96]
+    i = 0 as usize
+    while i < 64 as usize { outerMsg[i] = cryptoXor8(keyBlock[i], 92 as u8) i = i + 1 as usize }
+    i = 0 as usize
+    while i < 32 as usize { outerMsg[64 as usize + i] = innerDigest[i] i = i + 1 as usize }
+    return cryptoDigest(slice(&outerMsg[0 as usize], 96 as usize), output)
+}
+
+export function cryptoDigestEqual(left: []u8, right: []u8): bool {
+    if len(left) != len(right) { return false }
+    let diff: u8 = 0 as u8
+    let i: usize = 0 as usize
+    while i < len(left) {
+        diff = cryptoOr8(diff, cryptoXor8(left[i], right[i]))
+        i = i + 1 as usize
+    }
+    return diff == 0 as u8
+}
+
+export function cryptoPrngInit(p: *CryptoPrng, seed0: u64, seed1: u64): void {
+    if seed0 == 0 as u64 && seed1 == 0 as u64 {
+        p.state0 = 0x9e3779b97f4a7c15 as u64
+        p.state1 = 0xbf58476d1ce4e5b9 as u64
+    } else {
+        p.state0 = seed0
+        p.state1 = seed1
+    }
+}
+
+export function cryptoPrngNextU64(p: *CryptoPrng): u64 {
+    let s0: u64 = p.state0
+    let s1: u64 = p.state1
+    let res: u64 = (s0 + s1)
+    s1 = cryptoXor64(s1, s0)
+    let t0: u64 = cryptoXor64((s0 * 33554432 as u64) + (s0 / 549755813888 as u64), s1)
+    p.state0 = cryptoXor64(t0, s1 * 512 as u64)
+    p.state1 = ((s1 * 68719476736 as u64) + (s1 / 268435456 as u64))
+    return res
+}
+
+export function cryptoRandomFill(p: *CryptoPrng, output: []u8): bool {
+    let i: usize = 0 as usize
+    while i < len(output) {
+        let w: u64 = cryptoPrngNextU64(p)
+        let j: usize = 0 as usize
+        while j < 8 as usize && i + j < len(output) {
+            output[i + j] = (w % 256 as u64) as u8
+            w = w / 256 as u64
+            j = j + 1 as usize
+        }
+        i = i + 8 as usize
+    }
+    return true
+}

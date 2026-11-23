@@ -1,12 +1,43 @@
+// SPDX-License-Identifier: Apache-2.0
 import "../src/crypto.noqeri"
 
 function require(ok: bool): void {
     if !ok { let invalid: *u8 = 0 as *u8 print(invalid[0]) }
 }
 
-let left = [1 as u8, 2 as u8, 3 as u8]
-let right = [1 as u8, 2 as u8, 3 as u8]
-require(cryptoDigestEqual(left, right))
-require(!cryptoDigestEqual(left, [1 as u8]))
-print("noqeri-crypto package tests: OK")
+function test_crypto(): int {
+    // FIPS 180-4 SHA-256("abc") = ba7816bf 8f01cfea ... f20015ad
+    let abc: [u8; 3]
+    abc[0] = 97 as u8 abc[1] = 98 as u8 abc[2] = 99 as u8
+    let dig: [u8; 32]
+    let dsl: []u8 = slice(&dig[0 as usize], 32 as usize)
+    require(cryptoDigest(slice(&abc[0 as usize], 3 as usize), dsl))
+    require(dig[0] == 0xba as u8 && dig[1] == 0x78 as u8 && dig[2] == 0x16 as u8 && dig[3] == 0xbf as u8)
+    require(dig[30] == 0x15 as u8 && dig[31] == 0xad as u8)
 
+    // Constant-time equal
+    let dig2: [u8; 32]
+    require(cryptoDigest(slice(&abc[0 as usize], 3 as usize), slice(&dig2[0 as usize], 32 as usize)))
+    if dig2[0] % 2 as u8 == 0 as u8 { dig2[0] = dig2[0] + 1 as u8 } else { dig2[0] = dig2[0] - 1 as u8 }
+    require(!cryptoDigestEqual(dsl, slice(&dig2[0 as usize], 32 as usize)))
+
+    // RFC-2104 HMAC-SHA256
+    let key: [u8; 4]
+    key[0] = 107 as u8 key[1] = 101 as u8 key[2] = 121 as u8 key[3] = 49 as u8
+    let mac1: [u8; 32]
+    let mac2: [u8; 32]
+    require(cryptoHmac(slice(&key[0 as usize], 4 as usize), slice(&abc[0 as usize], 3 as usize), slice(&mac1[0 as usize], 32 as usize)))
+    require(cryptoHmac(slice(&key[0 as usize], 4 as usize), slice(&abc[0 as usize], 3 as usize), slice(&mac2[0 as usize], 32 as usize)))
+    require(cryptoDigestEqual(slice(&mac1[0 as usize], 32 as usize), slice(&mac2[0 as usize], 32 as usize)))
+
+    // PRNG fill
+    let prng: CryptoPrng
+    cryptoPrngInit(&prng, 12345 as u64, 67890 as u64)
+    let rnd: [u8; 16]
+    require(cryptoRandomFill(&prng, slice(&rnd[0 as usize], 16 as usize)))
+    require(rnd[0] != 0 as u8 || rnd[1] != 0 as u8)
+    return 1
+}
+
+require(test_crypto() == 1)
+print("noqeri-crypto package tests: OK")
